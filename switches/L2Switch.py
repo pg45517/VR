@@ -52,6 +52,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                                     match=match, instructions=inst)
         datapath.send_msg(mod)
     
+    # switch replying to controller request about its features, is needed for switch reset counters and or create the instance of its own flow table
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         datapath = ev.msg.datapath
