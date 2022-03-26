@@ -1,7 +1,7 @@
 from mininet.topo import Topo
 
 class MyTopo( Topo ):
-    "Topology Exercise 1"
+    "Topology Exercise 1 "
 
     def build( self ):
         "Create custom topo."
