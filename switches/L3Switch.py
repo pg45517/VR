@@ -1,19 +1,3 @@
-# Copyright (C) 2011 Nippon Telegraph and Telephone Corporation.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-# implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-
 # Modified to implement switch L3
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -28,6 +12,7 @@ from ryu.lib.packet import in_proto
 from ryu.lib.packet import icmp 
 from ryu.lib.packet import tcp  
 from ryu.lib.packet import udp
+from asyncio.log import logger
 
 
 class L3Switch(app_manager.RyuApp):
@@ -35,8 +20,10 @@ class L3Switch(app_manager.RyuApp):
 
     def __init__(self, *args, **kwargs):
         super(L3Switch, self).__init__(*args, **kwargs)
-        self.mac_to_port = {}
+        self.mac_to_port = {}   # MAC address and port association
+        self.mac_to_ip = {}     # MAC address and IP address
 
+    # This part is needed to initialize the switch features
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         datapath = ev.msg.datapath
@@ -69,6 +56,7 @@ class L3Switch(app_manager.RyuApp):
             mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
                                     match=match, instructions=inst)
         datapath.send_msg(mod)
+
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
@@ -120,7 +108,14 @@ class L3Switch(app_manager.RyuApp):
                 ip = pkt.get_protocol(ipv4.ipv4)
                 src_ip = ip.src
                 dst_ip = ip.dst
-                protocol = ip.proto # L4 protocol!
+                protocol = ip.proto # L4 protocol
+
+                self.logger.info("DPID: %s | SRC_MAC: %s | SRC_IP: %s | DST_MAC: %s | DST_IP: %s | IN_PORT: %s", dpid, src, src_ip, dst, dst_ip, in_port)
+
+                self.mac_to_ip.setdefault(dpid, {})
+                self.mac_to_ip[dpid].setdefault(src,src_ip)
+                
+                self.logger.info(self.mac_to_ip)    
 
                 # Handle ICMP Protocol
                 if protocol == in_proto.IPPROTO_ICMP:
@@ -128,6 +123,7 @@ class L3Switch(app_manager.RyuApp):
                                             ipv4_src=src_ip,
                                             ipv4_dst=dst_ip,
                                             ip_proto = protocol)
+                                            #RESPONDER ICMP
 
                 # Handle TCP protocol
                 if protocol == in_proto.IPPROTO_TCP:
@@ -163,3 +159,28 @@ class L3Switch(app_manager.RyuApp):
         out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
                                   in_port=in_port, actions=actions, data=data)
         datapath.send_msg(out)
+        
+
+    def add_sw_table_entry(self, port, host_addr):
+        self.switch_table[int(port)] = host_addr
+
+
+    def inside_sw_table(self, host_addr):
+        for sw_port in self.switch_table:
+            if host_addr == self.switch_table[sw_port]:
+                return True
+        return False
+
+
+    def get_sw_port(self, host_addr):
+        for sw_port in self.switch_table:
+            if host_addr == self.switch_table[sw_port]:
+                return sw_port
+
+
+    def print_sw_table(self):
+        logger.info("##################")
+        logger.info("PORT \t MAC")
+        for port, mac in self.switch_table.items():
+            logger.info("%s \t %s", port, mac)
+        logger.info("##################")
