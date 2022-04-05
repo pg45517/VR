@@ -29,6 +29,13 @@ from ryu.lib.packet import icmp
 from ryu.lib.packet import tcp  
 from ryu.lib.packet import udp
 
+from ryu.ofproto import inet
+from ryu.ofproto import ether
+from ryu.lib.packet import arp
+from ryu.lib.packet import ipv4
+from ryu.lib.packet import tcp
+from ryu.lib.packet import udp
+
 
 class L3Switch(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -36,6 +43,21 @@ class L3Switch(app_manager.RyuApp):
     def __init__(self, *args, **kwargs):
         super(L3Switch, self).__init__(*args, **kwargs)
         self.mac_to_port = {}
+
+        
+        # arp table: for searching
+        self.arp_table={}
+        self.arp_table["192.168.1.1"] = "00:00:00:00:00:01"
+        self.arp_table["192.168.1.2"] = "00:00:00:00:00:02"
+        self.arp_table["192.168.1.3"] = "00:00:00:00:00:03"
+        self.arp_table["192.168.2.1"] = "00:00:00:00:00:04"
+        self.arp_table["192.168.2.2"] = "00:00:00:00:00:05"
+        self.arp_table["192.168.2.3"] = "00:00:00:00:00:06"
+        self.arp_table["192.168.3.1"] = "00:00:00:00:00:07"
+        self.arp_table["192.168.3.2"] = "00:00:00:00:00:08"
+        self.arp_table["192.168.3.3"] = "00:00:00:00:00:09"
+       
+    
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -69,6 +91,45 @@ class L3Switch(app_manager.RyuApp):
             mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
                                     match=match, instructions=inst)
         datapath.send_msg(mod)
+
+
+
+    def handle_arp(self, datapath, in_port, pkt):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+
+        # parse out the ethernet and arp packet
+        eth_pkt = pkt.get_protocol(ethernet.ethernet)
+        arp_pkt = pkt.get_protocol(arp.arp)
+        # obtain the MAC of dst IP  
+        arp_resolv_mac = self.arp_table[arp_pkt.dst_ip]
+
+        ### generate the ARP reply msg, please refer RYU documentation
+        ### the packet library section
+	# ARP Reply Msg
+        ether_hd = ethernet.ethernet(dst = eth_pkt.src, 
+                                src = arp_resolv_mac, 
+                                ethertype = ether.ETH_TYPE_ARP);
+        arp_hd = arp.arp(hwtype=1, proto = 2048, hlen = 6, plen = 4,
+                         opcode = 2, src_mac = arp_resolv_mac, 
+                         src_ip = arp_pkt.dst_ip, dst_mac = eth_pkt.src,
+                         dst_ip = arp_pkt.src_ip);
+        arp_reply = packet.Packet()
+        arp_reply.add_protocol(ether_hd)
+        arp_reply.add_protocol(arp_hd)
+        #print("arp_reply ", arp_reply)
+        arp_reply.serialize()
+        print("Executing ARP Reply IP ", arp_pkt.src_ip, " located at datapath.id ", datapath.id, " at port ", in_port)
+        
+        # send the Packet Out mst to back to the host who is initilaizing the ARP
+        actions = [parser.OFPActionOutput(in_port)];
+        out = parser.OFPPacketOut(datapath, ofproto.OFP_NO_BUFFER, 
+                                  ofproto.OFPP_CONTROLLER, actions,
+                                  arp_reply.data)
+        datapath.send_msg(out)
+
+
+
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
