@@ -38,7 +38,6 @@ def Topology():
     s1 = net.addSwitch('s1', cls=OVSSwitch, dpid='0000000000000002') # L2 Switch Net B (no ip)
     s2 = net.addSwitch('s2', cls=OVSSwitch, dpid='0000000000000003') # L2 Switch Net C (no ip)
     s3 = net.addSwitch('s3', cls=OVSSwitch, dpid='0000000000000004') # L2 Switch Net C (no ip)
-
         
 
     info('Add hosts and switches\n')
@@ -69,6 +68,24 @@ def Topology():
     net.addLink( h2_C, s3 )
     net.addLink( h3_C, s3, cls=TCLink, losses = '10')
     net.addLink( r1, s3 )
+
+    info('Setting MAC addresses to switches')
+    s1.setMAC('10:00:00:00:00:01', 's1-eth1')
+    s1.setMAC('10:00:00:00:00:02', 's1-eth2')
+    s1.setMAC('10:00:00:00:00:03', 's1-eth3')
+    s1.setMAC('10:00:00:00:00:04', 's1-eth4')
+    s2.setMAC('20:00:00:00:00:01', 's2-eth1')
+    s2.setMAC('20:00:00:00:00:02', 's2-eth2')
+    s2.setMAC('20:00:00:00:00:03', 's2-eth3')
+    s2.setMAC('20:00:00:00:00:04', 's2-eth4')
+    s3.setMAC('30:00:00:00:00:01', 's3-eth1')
+    s3.setMAC('30:00:00:00:00:02', 's3-eth2')
+    s3.setMAC('30:00:00:00:00:03', 's3-eth3')
+    s3.setMAC('30:00:00:00:00:04', 's3-eth4')
+    r1.setMAC('40:00:00:00:00:01', 'r1-eth1')
+    r1.setMAC('40:00:00:00:00:02', 'r1-eth2')
+    r1.setMAC('40:00:00:00:00:03', 'r1-eth3')
+
 
     net.build()
 
