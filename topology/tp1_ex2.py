@@ -1,47 +1,32 @@
-from mininet.net import Mininet
-from mininet.topo import Topo
+#!/usr/bin/python
+
+import sys
+
 from mininet.node import RemoteController
-from mininet.node import OVSSwitch
-from mininet.cli import CLI
-from mininet.log import info
-from mininet.log import setLogLevel
 from mininet.link import TCLink
-from subprocess import call
+from mininet.log import setLogLevel, info
+from mn_wifi.cli import CLI
+from mn_wifi.net import Mininet_wifi
 
-    #"Topology Exercise 2"
 
-def Topology():
-    #"Create custom topo."
+def myNetwork():
 
-    info('Net A -> 192.168.1.0/24\nNet B -> 192.168.2.0/24\nNet C -> 192.168.3.0/24\n')
+    net = Mininet_wifi(controller=None)
+    #net = Mininet(switch=OVSSwitch,controller=RemoteController, autoStaticArp=True)
 
-    net = Mininet( controller=RemoteController, link=TCLink, switch=OVSSwitch )
+    info('*** Adicionando o Controlador\n' )
+    c1 = RemoteController('c1', ip='127.0.0.1', port=6653)
+    net.addController(c1)
 
-    info('***Creating remote controller on port 6633 (L2 switches)\n')
-    c0 = net.addController(name='c0',
-                        controller=RemoteController,
-                        ip='127.0.0.1',
-                        protocol='tcp',
-                        port=6633)
+    info('*** Add switches/APs\n')
+    s1 = net.addSwitch('s1', mac='00:00:00:00:01:01')
+    s2 = net.addSwitch('s2', mac='00:00:00:00:01:02')
+    s3 = net.addSwitch('s3', mac='00:00:00:00:01:03')
+    r1 = net.addSwitch('r1', mac='10:00:00:00:00:01' )  # L3 switch
     
-    info('***Creating remote controller on port 6655 (L3 switch)\n')
-    c1 = net.addController(name='c1',
-                        controller=RemoteController,
-                        ip='127.0.0.1',
-                        protocol='tcp',
-                        port=6655)
-
-    info('Adding L3 switch\n')
-    r1 = net.addSwitch('r1', cls = OVSSwitch, dpid = '0000000000000001')  # L3 switch
-
-    info('Adding L2 switches\n')
-    s1 = net.addSwitch('s1', cls=OVSSwitch, dpid='0000000000000002') # L2 Switch Net B (no ip)
-    s2 = net.addSwitch('s2', cls=OVSSwitch, dpid='0000000000000003') # L2 Switch Net C (no ip)
-    s3 = net.addSwitch('s3', cls=OVSSwitch, dpid='0000000000000004') # L2 Switch Net C (no ip)
-        
 
     info('Add hosts and switches\n')
-    h1_A = net.addHost( 'h1_A', ip = '192.168.1.1/24', mac = '00:00:00:00:00:01', defaultRoute='via 192.168.1.254')   # Host 1 Net A
+    h1_A = net.addHost( 'h1_A', ip = '192.168.1.1/24', mac = '00:00:00:00:00:01', defaultRoute='via 192.168.1.254')    # Host 1 Net A
     h2_A = net.addHost( 'h2_A', ip = '192.168.1.2/24', mac = '00:00:00:00:00:02', defaultRoute='via 192.168.1.254' )   # Host 2 Net A
     h3_A = net.addHost( 'h3_A', ip = '192.168.1.3/24', mac = '00:00:00:00:00:03', defaultRoute='via 192.168.1.254' )   # Host 3 Net A
     h1_B = net.addHost( 'h1_B', ip = '192.168.2.1/24', mac = '00:00:00:00:00:04', defaultRoute='via 192.168.2.254' )   # Host 1 Net B
@@ -51,6 +36,7 @@ def Topology():
     h2_C = net.addHost( 'h2_C', ip = '192.168.3.2/24', mac = '00:00:00:00:00:08', defaultRoute='via 192.168.3.254' )   # Host 2 Net C
     h3_C = net.addHost( 'h3_C', ip = '192.168.3.3/24', mac = '00:00:00:00:00:09', defaultRoute='via 192.168.3.254' )   # Host 3 Net C
     
+   
     info('Adding links Net A\n')
     net.addLink( h1_A, s1 )
     net.addLink( h2_A, s1 )
@@ -69,31 +55,17 @@ def Topology():
     net.addLink( h3_C, s3, cls=TCLink, losses = '10')
     net.addLink( r1, s3 )
 
-    info('Setting MAC addresses to switches')
-    s1.setMAC('10:00:00:00:00:01', 's1-eth1')
-    s1.setMAC('10:00:00:00:00:02', 's1-eth2')
-    s1.setMAC('10:00:00:00:00:03', 's1-eth3')
-    s1.setMAC('10:00:00:00:00:04', 's1-eth4')
-    s2.setMAC('20:00:00:00:00:01', 's2-eth1')
-    s2.setMAC('20:00:00:00:00:02', 's2-eth2')
-    s2.setMAC('20:00:00:00:00:03', 's2-eth3')
-    s2.setMAC('20:00:00:00:00:04', 's2-eth4')
-    s3.setMAC('30:00:00:00:00:01', 's3-eth1')
-    s3.setMAC('30:00:00:00:00:02', 's3-eth2')
-    s3.setMAC('30:00:00:00:00:03', 's3-eth3')
-    s3.setMAC('30:00:00:00:00:04', 's3-eth4')
-    r1.setMAC('40:00:00:00:00:01', 'r1-eth1')
-    r1.setMAC('40:00:00:00:00:02', 'r1-eth2')
-    r1.setMAC('40:00:00:00:00:03', 'r1-eth3')
-
-
+    info('*** Iniciando a Rede\n')
     net.build()
+    
+    info('*** Iniciando o Controlador\n')
+    c1.start()
 
-    # Switches
-    r1.start([c1])
-    s1.start([c0])
-    s2.start([c0])
-    s3.start([c0])
+    info('*** Iniciando os switches\n')
+    s1.start([c1])
+    s2.start([c1])
+    s3.start([c1])
+    
 
     info('\nSetting up of IP addresses in the R1\n')
     r1.cmd("ifconfig r1-eth1 0")
@@ -103,7 +75,7 @@ def Topology():
     r1.cmd("ip addr add 192.168.2.254/24 brd + dev r1-eth2")
     r1.cmd("ip addr add 192.168.3.254/24 brd + dev r1-eth3")
     r1.cmd("echo 1 > /proc/sys/net/ipv4/ip_forward")
-
+  
     info('Setting GW to hosts\n')
     h1_A.cmd("ip route add default via 192.168.1.254")  # GW Net A
     h2_A.cmd("ip route add default via 192.168.1.254")  # GW Net A
@@ -117,14 +89,12 @@ def Topology():
 
     info('GW Net A -> 192.168.1.254/24\nGW Net B -> 192.168.2.254/24\nGW Net C -> 192.168.3.254/24\n')
     #info('sudo mn --controller=remote,ip=127.0.0.1,port=6655\n')
-    #info('sudo mn --controller=remote,ip=127.0.0.1,port=6633\n')
-        
-    # Start command line
-    CLI(net)
+    #info('sudo mn --controller=remote,ip=127.0.
+  
 
-    # Stop Network
+    CLI(net)
     net.stop()
 
 if __name__ == '__main__':
-    setLogLevel('info')
-    Topology()
+    setLogLevel( 'info' )
+    myNetwork()
