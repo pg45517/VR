@@ -22,15 +22,8 @@ import ipaddress
 # To use a memory-efficient queue
 from collections import deque
 
-
-FILTER_TABLE = 5
-FORWARD_TABLE = 10
-
-interface_mac_to_port = {"10:00:00:00:00:01":1, "10:00:00:00:00:02":2, "10:00:00:00:00:03":3, "10:00:00:00:00:04":4,
-"20:00:00:00:00:01":1, "20:00:00:00:00:02":2, "20:00:00:00:00:01":3, "20:00:00:00:00:04":4,
-"30:00:00:00:00:01":1, "30:00:00:00:00:02":2, "30:00:00:00:00:03":3, "30:00:00:00:00:04":4,
-'40:00:00:00:00:01' :1, '40:00:00:00:00:02' : 2, '40:00:00:00:00:03' : 3}
-interface_ip_to_mac = {'192.168.1.1': '00:00:00:00:00:01', '192.168.1.2': '00:00:00:00:00:02', '192.168.1.3': '00:00:00:00:00:03','192.168.1.254': '40:00:00:00:00:01', '192.168.2.254': '40:00:00:00:00:02', '192.168.2.1': '00:00:00:00:00:04','192.168.2.2': '00:00:00:00:00:05', '192.168.2.3': '00:00:00:00:00:06','192.168.3.254': '40:00:00:00:00:03','192.168.3.1': '00:00:00:00:00:07','192.168.3.2': '00:00:00:00:00:08','192.168.3.3': '00:00:00:00:00:09',}
+interface_mac_to_port = {'10:00:00:00:00:01' : 1, '10:00:00:00:00:02' : 2, '10:00:00:00:00:03' : 3}
+interface_ip_to_mac = {'192.168.1.254': '10:00:00:00:00:01', '192.168.2.254': '10:00:00:00:00:02', '192.168.3.254': '10:00:00:00:00:03'}
 NET_PORT = {'192.168.1.0/24': 1, '192.168.2.0/24': 2, '192.168.3.0/24': 3}
 
 class L3Switch(app_manager.RyuApp):
@@ -57,8 +50,15 @@ class L3Switch(app_manager.RyuApp):
         datapath = ev.msg.datapath
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
+        #print(ev.msg.datapath.address)
 
         # install table-miss flow entry
+        #
+        # We specify NO BUFFER to max_len of the output action due to
+        # OVS bug. At this moment, if we specify a lesser number, e.g.,
+        # 128, OVS will send Packet-In with invalid buffer_id and
+        # truncated packet data. In that case, we cannot output packets
+        # correctly.  The bug has been fixed in OVS v2.1.0.
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
@@ -142,58 +142,6 @@ class L3Switch(app_manager.RyuApp):
         dpid = datapath.id
         self.mac_to_port[dpid][mac] = port
 
-    '''
-    def add_default_table(self, datapath):
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-        inst = [parser.OFPInstructionGotoTable(FILTER_TABLE)]
-        mod = parser.OFPFlowMod(datapath=datapath, table_id=0, instructions=inst)
-        datapath.send_msg(mod)
-
-    def add_filter_table(self, datapath):
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-        inst = [parser.OFPInstructionGotoTable(FORWARD_TABLE)]
-        mod = parser.OFPFlowMod(datapath=datapath, table_id=FILTER_TABLE, 
-                                priority=1, instructions=inst)
-        datapath.send_msg(mod)
-
-    def apply_filter_table_rules(self, datapath):
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-        match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ip_proto=in_proto.IPPROTO_ICMP)
-        mod = parser.OFPFlowMod(datapath=datapath, table_id=FILTER_TABLE,
-                                priority=10000, match=match)
-        datapath.send_msg(mod)
-
-    def send_features_request(self, datapath):
-        ofp_parser = datapath.ofproto_parser
-
-        req = ofp_parser.OFPFeaturesRequest(datapath)
-        datapath.send_msg(req)
-
-    def send_flow_mod(self, datapath):
-        ofp = datapath.ofproto
-        ofp_parser = datapath.ofproto_parser
-
-        cookie = cookie_mask = 0
-        table_id = 5
-        idle_timeout = hard_timeout = 0
-        priority = 32768
-        buffer_id = ofp.OFP_NO_BUFFER
-        match = ofp_parser.OFPMatch(in_port=1, eth_dst='ff:ff:ff:ff:ff:ff')
-        actions = [ofp_parser.OFPActionOutput(ofp.OFPP_NORMAL, 3)]
-        inst = [ofp_parser.OFPInstructionActions(ofp.OFPIT_APPLY_ACTIONS,
-                                                actions)]
-        req = ofp_parser.OFPFlowMod(datapath, cookie, cookie_mask,
-                                    table_id, ofp.OFPFC_ADD,
-                                    idle_timeout, hard_timeout,
-                                    priority, buffer_id,
-                                    ofp.OFPP_ANY, ofp.OFPG_ANY,
-                                    ofp.OFPFF_SEND_FLOW_REM,
-                                    match, inst)
-        datapath.send_msg(req)
-    '''
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
@@ -227,6 +175,9 @@ class L3Switch(app_manager.RyuApp):
         
         self.logger.info("packet in %s %s %s %s", dpid, src_mac, dst_mac, in_port)
 
+
+
+
         if eth.ethertype == ether_types.ETH_TYPE_ARP: # ARP packet received...
             arp_pkt = pkt.get_protocol(arp.arp)
             src_ip = arp_pkt.src_ip
@@ -235,8 +186,8 @@ class L3Switch(app_manager.RyuApp):
             self.update_mac_table(datapath, src_mac, in_port)
             self.update_ip_table(datapath, src_ip, src_mac)
 
-            self.logger.info(self.ip_to_mac)
-            self.logger.info(self.mac_to_port)
+            #self.logger.info(self.ip_to_mac)
+            #self.logger.info(self.mac_to_port)
 
             if arp_pkt.opcode == 1:  # If ARP request
                 #self.logger.info("ARP  REQ to interface %s with address %s", interface_mac_to_port[interface_ip_to_mac[dst_ip]],dst_ip)
@@ -247,34 +198,47 @@ class L3Switch(app_manager.RyuApp):
 
                 
             if arp_pkt.opcode == 2: # If ARP Reply
-                if self.isEmpty():
-                    self.logger.info('Warning! Not requested ARP reply!')
-                    # If L3 did not send request, ignore
-                    return
+                #if self.isEmpty():
+                #    self.logger.info('Warning! Not requested ARP reply!')
+                #    # If L3 did not send request, ignore
+                #    return
 
-                ev_fifo = self.out_fifo()
-                msg_fifo = ev_fifo.msg
-                pkt_fifo = packet.Packet(msg_fifo.data)
-                eth_fifo = pkt_fifo.get_protocol(ethernet.ethernet)
-                arp_fifo = pkt_fifo.get_protocol(arp.arp)
-                src_mac_fifo = eth_fifo.src
-                dst_mac_fifo = eth_fifo.dst
-                #dst_ip_fifo = arp_fifo.dst_ip
+                # ev_fifo = self.out_fifo()
+                # msg_fifo = ev_fifo.msg
+                # pkt_fifo = packet.Packet(msg_fifo.data)
+                # eth_fifo = pkt_fifo.get_protocol(ethernet.ethernet)
+                # arp_fifo = pkt_fifo.get_protocol(arp.arp)
+                # src_mac_fifo = eth_fifo.src
+                # dst_mac_fifo = eth_fifo.dst
+                # #dst_ip_fifo = arp_fifo.dst_ip
+
+                self.logger.info('ADDED TO THE MAC TABLE: %s -> %s', src_mac, in_port)
+                self.update_mac_table(datapath, src_mac, in_port)
+                self.logger.info(self.mac_to_port)
+                self.logger.info('ADDED TO THE IP TABLE: %s -> %s', src_ip, src_mac)
+                self.update_ip_table(datapath, src_ip, src_mac)
+                self.logger.info(self.ip_to_mac)
+                
 
 
-                if dst_ip in interface_ip_to_mac:
-                    if dst_mac_fifo == src_mac:
-                        self.logger.info('ADDED TO THE MAC TABLE: %s -> %s', dst_mac_fifo, in_port)
-                        self.update_mac_table(dst_mac_fifo, in_port)
-                        self.logger.info('ADDED TO THE IP TABLE: %s -> %s', dst_ip, dst_mac_fifo)
-                        self.update_ip_table(dst_ip, dst_mac)
-                        return
+                # if dst_ip in interface_ip_to_mac:
+                #     if dst_mac_fifo == src_mac:
+                #         self.logger.info('ADDED TO THE MAC TABLE: %s -> %s', dst_mac_fifo, in_port)
+                #         self.update_mac_table(dst_mac_fifo, in_port)
+                #         self.logger.info('ADDED TO THE IP TABLE: %s -> %s', dst_ip, dst_mac_fifo)
+                #         self.update_ip_table(dst_ip, dst_mac)
+                #         return
 
         if eth.ethertype == ether_types.ETH_TYPE_IP:
             ip_pkt = pkt.get_protocol(ipv4.ipv4)
             src_ip = ip_pkt.src
             dst_ip = ip_pkt.dst
             protocol = ip_pkt.proto
+
+            if dst_ip in self.ip_to_mac[dpid]:
+                router_ip = self.get_router_interface_ip(dst_ip)
+                self.logger.info('ADDING FLOW!')
+                self.inject_flow(datapath, src_ip, in_port, dst_ip, self.mac_to_port[dpid][self.ip_to_mac[dpid][dst_ip]], 1)
 
             if protocol == in_proto.IPPROTO_ICMP:
                 icmp_pkt = pkt.get_protocol(icmp.icmp)
@@ -341,64 +305,25 @@ class L3Switch(app_manager.RyuApp):
                                             return                    
 
                             
-        # switch s1
-        if datapath.id == 1:
 
-            #add the return flow for h1_A in h3_A.  
-            # h1 is connected to port 2.
-           
+    def inject_flow(self, datapath, src_ip, in_port, dst_ip, out_port, priority):
+        dpid = datapath.id
+        parser = datapath.ofproto_parser
+        match = parser.OFPMatch(in_port = in_port, eth_type = 0x0800, ipv4_src= src_ip, ipv4_dst = dst_ip) 
+        #self.logger.info(interface_ip_to_mac[dst_ip])
+        for net in NET_PORT:
+            if ipaddress.ip_address(dst_ip) in ipaddress.ip_network(net):
+                size = len(net)
+                for router_ip in interface_ip_to_mac:
+                    if ipaddress.ip_address(router_ip) in ipaddress.ip_network(net):
+                        mac = interface_ip_to_mac[router_ip]
+        actions = [parser.OFPActionSetField(eth_src = mac), parser.OFPActionSetField(eth_dst = self.ip_to_mac[dpid][dst_ip]), parser.OFPActionOutput(out_port)]
+        self.add_flow(datapath, priority, match, actions)
 
-            match = parser.OFPMatch(in_port=1, eth_type=0x0800, ipv4_src="192.168.3.3", ipv4_dst="192.168.1.1")
-            actions = [parser.OFPActionOutput(3)]
-            self.add_flow(datapath, 4, match, actions)
-    
-            match = parser.OFPMatch(in_port=1, eth_type=0x0800, ipv4_src="192.168.1.1", ipv4_dst="192.168.3.3")
-            actions = [parser.OFPActionOutput(1)]
-            self.add_flow(datapath, 2, match, actions)
-            
-            
-
-
-        
-        # switch s2
-        
-        elif datapath.id == 2:
-
-
-            #add the return flow for h1 in s2.  
-            # h1 is connected to port 1.
-            match = parser.OFPMatch(in_port=4, eth_type=0x0800, ipv4_src="192.168.3.3", ipv4_dst="192.168.1.1")
-            actions = [parser.OFPActionOutput(3)]
-            self.add_flow(datapath, 2, match, actions)
-
-            match = parser.OFPMatch(in_port=3, eth_type=0x0800,ipv4_src="192.168.1.1", ipv4_dst="192.168.3.3")
-            actions = [parser.OFPActionOutput(1)]
-            self.add_flow(datapath, 2, match, actions)
-            
-            
-
-        # switch s3
-        elif datapath.id == 3:
-            # h1 is connected to port 3.
-            match = parser.OFPMatch(in_port=1, eth_type=0x0800, ipv4_src="192.168.3.3", ipv4_dst="192.168.1.1")
-            actions = [parser.OFPActionOutput(2)]
-            self.add_flow(datapath, 2, match, actions)
-
-            match = parser.OFPMatch(in_port=2, eth_type=0x0800, ipv4_src="192.168.1.1", ipv4_dst="192.168.3.3")
-            actions = [parser.OFPActionOutput(1)]
-            self.add_flow(datapath, 2, match, actions)
-            
-        # switch r1
-        elif datapath.id ==1 or 2 or 3:
-            # h1 is connected to port 3.
-            match = parser.OFPMatch(in_port=1, eth_type=0x0800, ipv4_src="192.168.3.3", ipv4_dst="192.168.1.1")
-            actions = [parser.OFPActionOutput(3)]
-            self.add_flow(datapath, 2, match, actions)
-
-            match = parser.OFPMatch(in_port=3, eth_type=0x0800, ipv4_src="192.168.1.1", ipv4_dst="192.168.3.3")
-            actions = [parser.OFPActionOutput(1)]
-            self.add_flow(datapath, 2, match, actions)
-            
-        
-        else:
-            print ("Hiii there sws!!!")
+    def get_router_interface_ip(self, dst_ip):
+        for net in NET_PORT:
+            if ipaddress.ip_address(dst_ip) in ipaddress.ip_network(net):
+                size = len(net)
+                for router_ip in interface_ip_to_mac:
+                    if ipaddress.ip_address(router_ip) in ipaddress.ip_network(net):
+                        return router_ip
