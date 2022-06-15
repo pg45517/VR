@@ -6,11 +6,11 @@ Network Virtualization class
 
 Start topology with mininet:
 
-```sudo python3 topology/topology_tp1_ex1.py```
+```sudo mn --custom VR/topology/tp1_ex1_topology.py --topo tp1_ex1_topo --mac --controller=remote```
 
 Start layer 2 controller:
 
-```ryu-manager switches/controller_tp1_ex1_layer2.py```
+```ryu-manager VR/switches/tp1_ex1_controller.py```
 
 ## Running TP1 Exercise 2 (layer 3 switch)
 
