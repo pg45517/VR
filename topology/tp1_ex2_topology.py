@@ -12,14 +12,14 @@ def Topology():
 
     net = Mininet( controller=RemoteController, link=TCLink, switch=OVSSwitch )
 
-    info('***Connecting to remote controller on port 6633 (L2 switches)\n')
+    info('Defining remote controller on port 6633 (L2 switches)\n')
     c0 = net.addController(name='c0',
                         controller=RemoteController,
                         ip='127.0.0.1',
                         protocol='tcp',
                         port=6633)
     
-    info('***Connectig to remote controller on port 6655 (L3 switch)\n')
+    info('Defining to remote controller on port 6655 (L3 switch)\n')
     c1 = net.addController(name='c1',
                         controller=RemoteController,
                         ip='127.0.0.1',
@@ -82,7 +82,7 @@ def Topology():
 
     net.build()
 
-    # Starting switches
+    info("Starting OVSwitches")
     r1.start([c1])
     s1.start([c0])
     s2.start([c0])
@@ -108,13 +108,8 @@ def Topology():
     h2_C.cmd("ip route add default via 192.168.3.254")  # GW Net B
     h3_C.cmd("ip route add default via 192.168.3.254")  # GW Net B
 
-    info('GW Net A -> 192.168.1.254/24\nGW Net B -> 192.168.2.254/24\nGW Net C -> 192.168.3.254/24\n')
-        
-    # Start command line
-    CLI(net)
-
-    # Stop Network
-    net.stop()
+    CLI(net) # Start command line
+    net.stop() # Stop Network
 
 if __name__ == '__main__':
     setLogLevel('info')
