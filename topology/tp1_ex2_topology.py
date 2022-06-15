@@ -10,7 +10,7 @@ def Topology():
     info("Creating TP1 Exercise 2 topology...")
     info('Net A -> 192.168.1.0/24\nNet B -> 192.168.2.0/24\nNet C -> 192.168.3.0/24\n')
 
-    net = Mininet( controller=RemoteController, link=TCLink, switch=OVSSwitch )
+    net = Mininet(controller=RemoteController, link=TCLink, switch=OVSSwitch)
 
     info('Defining remote controller on port 6633 (L2 switches)\n')
     c0 = net.addController(name='c0',
