@@ -16,12 +16,12 @@ Start layer 2 controller:
 
 Start topology with mininet:
 
-```sudo python3 topology/topology_tp1_ex2.py```
+```sudo python3 VR/topology/tp1_ex2_topology.py```
 
 Start layer 2 controller:
 
-```ryu-manager switches/controller_tp1_ex1_layer2.py```
+```ryu-manager VR/switches/tp1_ex1_controller.py```
 
 Start layer 3 controller:
 
-```ryu-manager switches/controller_tp1_ex2_layer3.py --ofp-tcp-listen-port 6655```
+```ryu-manager VR/switches/tp1_ex2_controller.py --ofp-tcp-listen-port 6655```
