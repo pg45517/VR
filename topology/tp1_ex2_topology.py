@@ -1,10 +1,8 @@
 from mininet.net import Mininet
 from mininet.topo import Topo
-from mininet.node import RemoteController
-from mininet.node import OVSSwitch
+from mininet.node import RemoteController, OVSSwitch
 from mininet.cli import CLI
-from mininet.log import info
-from mininet.log import setLogLevel
+from mininet.log import info, setLogLevel
 from mininet.link import TCLink
 from subprocess import call
 
