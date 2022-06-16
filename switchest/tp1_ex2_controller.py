@@ -36,9 +36,7 @@ class L3Switch(app_manager.RyuApp):
         #self.logger.info(address)
         #self.logger.info(dpid)
 
-        
         # install table-miss flow entry
-        #
         # We specify NO BUFFER to max_len of the output action due to
         # OVS bug. At this moment, if we specify a lesser number, e.g.,
         # 128, OVS will send Packet-In with invalid buffer_id and
@@ -57,9 +55,7 @@ class L3Switch(app_manager.RyuApp):
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
-
-        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
-                                             actions)]
+        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
         if buffer_id:
             mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
                                     priority=priority, match=match,
@@ -131,7 +127,6 @@ class L3Switch(app_manager.RyuApp):
             src_ip = ip_pkt.src
             dst_ip = ip_pkt.dst
             protocol = ip_pkt.proto
-
             if dst_ip in self.ip_to_mac[dpid]:
                 self.logger.info('NEW FLOW ADDED, PLS CHECK FLOW TABLE')
                 self.inject_flow(datapath, src_ip, in_port, dst_ip, self.mac_to_port[dpid][self.ip_to_mac[dpid][dst_ip]], 1)
@@ -177,13 +172,11 @@ class L3Switch(app_manager.RyuApp):
             self.update_ip_table(datapath, src_ip, src_mac)
             self.logger.info(self.mac_to_port[dpid])
             self.logger.info(self.ip_to_mac[dpid])
-
             if dst_ip in self.L3_ip_to_mac[dpid]:
                 self.logger.info('ARP REPLY to %s in port %d', src_ip, in_port)
                 # Could be good add a flow to avoid use the controller
                 self.send_arp(datapath, 2, dst_ip, self.L3_ip_to_mac[dpid][dst_ip], src_ip, src_mac, in_port)
                 return
-
         else:   # ARP REPLY
             # TO DO
             # Added queue in this process...
