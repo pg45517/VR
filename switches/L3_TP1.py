@@ -1,19 +1,10 @@
 from ryu.base import app_manager
 from ryu.controller import ofp_event
-from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER
-from ryu.controller.handler import set_ev_cls
-from ryu.ofproto import ofproto_v1_3
-from ryu.lib.packet import packet
-from ryu.lib.packet import ethernet
-from ryu.lib.packet import ether_types
-from ryu.lib.packet import ipv4
-from ryu.lib.packet import in_proto
-from ryu.lib.packet import icmp 
-from ryu.lib.packet import arp
-from ryu.ofproto import inet
+from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, set_ev_cls 
+from ryu.ofproto import ofproto_v1_3, inet
+from ryu.lib.packet import packet, ethernet, ether_types, ipv4, in_proto, icmp, arp
 from asyncio.log import logger
-from ipaddress import ip_network
-from ipaddress import ip_interface
+from ipaddress import ip_network, ip_interface
 
 # To work with IP easily
 import ipaddress
@@ -80,10 +71,8 @@ class L3Switch(app_manager.RyuApp):
 
     def send_port_desc_stats_request(self, datapath):
         ofp_parser = datapath.ofproto_parser
-
         req = ofp_parser.OFPPortDescStatsRequest(datapath, 0)
         datapath.send_msg(req)
-
     
     @set_ev_cls(ofp_event.EventOFPPortDescStatsReply, MAIN_DISPATCHER)
     def port_desc_stats_reply_handler(self, ev):
@@ -146,25 +135,20 @@ class L3Switch(app_manager.RyuApp):
             if dst_ip in self.ip_to_mac[dpid]:
                 self.logger.info('NEW FLOW ADDED, PLS CHECK FLOW TABLE')
                 self.inject_flow(datapath, src_ip, in_port, dst_ip, self.mac_to_port[dpid][self.ip_to_mac[dpid][dst_ip]], 1)
-            
             elif dst_ip in self.L3_ip_to_mac[dpid]:
                 if protocol == in_proto.IPPROTO_ICMP:
                     icmp_pkt = pkt.get_protocol(icmp.icmp)
                     echo = icmp_pkt.data
-
                     if icmp_pkt.type == icmp.ICMP_ECHO_REQUEST:
                         self.logger.info('ICMP REPLY to %s in port %d', dst_ip, in_port)
                         # Could be good add a flow to avoid use the controller
                         self.send_icmp(datapath, icmp.ICMP_ECHO_REPLY, echo, dst_ip, self.L3_ip_to_mac[dpid][dst_ip], src_ip, src_mac, in_port)
                         return
-        
-                
             else:
                 # Should enqueue the arrived packet here while switch search for the MAC....
                 self.flood_arp(datapath, dst_ip)
                 return
                     
-
     def flood_arp(self, datapath, dst_ip):
         dpid = datapath.id 
         self.logger.info('flood')
@@ -181,7 +165,6 @@ class L3Switch(app_manager.RyuApp):
         #             if ipaddress.ip_address(router_ip) in ipaddress.ip_network(net):
         #                 self.logger.info('FLOOD executed to find %s', dst_ip)
         #                 self.send_arp(datapath, 1, router_ip, self.L3_ip_to_mac[dpid][router_ip], dst_ip, 'FF:FF:FF:FF:FF:FF', self.L3_mac_to_port[dpid][self.L3_ip_to_mac[dpid][router_ip]])
-
 
     def handle_arp(self, datapath, pkt, in_port, src_mac):
         dpid = datapath.id
