@@ -1,10 +1,24 @@
 from ryu.base import app_manager
 from ryu.controller import ofp_event
-from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, set_ev_cls 
-from ryu.ofproto import ofproto_v1_3, inet
-from ryu.lib.packet import packet, ethernet, ether_types, ipv4, in_proto, icmp, arp
+from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER
+from ryu.controller.handler import set_ev_cls
+from ryu.ofproto import ofproto_v1_3
+from ryu.lib.packet import packet
+from ryu.lib.packet import ethernet
+from ryu.lib.packet import ether_types
+from ryu.lib.packet import ipv4
+from ryu.lib.packet import in_proto
+from ryu.lib.packet import icmp 
+from ryu.lib.packet import arp
+from ryu.ofproto import inet
+from ryu.ofproto.ofproto_v1_3 import OFPG_ANY
 from asyncio.log import logger
-from ipaddress import ip_network, ip_interface
+from ipaddress import ip_network
+from ipaddress import ip_interface
+from ryu.topology.api import get_switch, get_link
+
+# To create a copy of the dict
+import copy
 
 # To work with IP easily
 import ipaddress
@@ -12,6 +26,8 @@ import ipaddress
 # Define IPv4 addresses to each port of each switch
 # {DPID:{PORT: IP}}
 interface_port_to_ip = {1: {1: '192.168.1.254', 2: '192.168.2.254', 3: '192.168.3.254'}}
+
+mask = '255.255.255.0' #mask = /24 to all the networks in the topology...
 
 class L3Switch(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -31,12 +47,9 @@ class L3Switch(app_manager.RyuApp):
         parser = datapath.ofproto_parser
 
         self.logger.info(ev.msg.datapath.address)
-        #address = ev.switch.dp.address
-        #dpid = ev.switch.dp.id
-        #self.logger.info(address)
-        #self.logger.info(dpid)
-
+        
         # install table-miss flow entry
+        #
         # We specify NO BUFFER to max_len of the output action due to
         # OVS bug. At this moment, if we specify a lesser number, e.g.,
         # 128, OVS will send Packet-In with invalid buffer_id and
@@ -55,7 +68,9 @@ class L3Switch(app_manager.RyuApp):
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
-        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
+
+        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
+                                             actions)]
         if buffer_id:
             mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
                                     priority=priority, match=match,
@@ -67,8 +82,10 @@ class L3Switch(app_manager.RyuApp):
 
     def send_port_desc_stats_request(self, datapath):
         ofp_parser = datapath.ofproto_parser
+
         req = ofp_parser.OFPPortDescStatsRequest(datapath, 0)
         datapath.send_msg(req)
+
     
     @set_ev_cls(ofp_event.EventOFPPortDescStatsReply, MAIN_DISPATCHER)
     def port_desc_stats_reply_handler(self, ev):
@@ -120,48 +137,57 @@ class L3Switch(app_manager.RyuApp):
         self.logger.info("packet in %s %s %s %s", dpid, src_mac, dst_mac, in_port)
 
         if eth.ethertype == ether_types.ETH_TYPE_ARP:
-            self.handle_arp(datapath, pkt, in_port, src_mac)
+            self.handle_arp(msg, pkt, in_port, src_mac)
         
         if eth.ethertype == ether_types.ETH_TYPE_IP:
             ip_pkt = pkt.get_protocol(ipv4.ipv4)
             src_ip = ip_pkt.src
             dst_ip = ip_pkt.dst
             protocol = ip_pkt.proto
+
+            self.update_mac_table(datapath, src_mac, in_port)
+            self.update_ip_table(datapath, src_ip, src_mac)
+
             if dst_ip in self.ip_to_mac[dpid]:
-                self.logger.info('NEW FLOW ADDED, PLS CHECK FLOW TABLE')
-                self.inject_flow(datapath, src_ip, in_port, dst_ip, self.mac_to_port[dpid][self.ip_to_mac[dpid][dst_ip]], 1)
+                self.logger.info('NEW FLOW ADDED, PLS CHECK FLOW TABLE(1)')
+                self.inject_flow(datapath, src_ip, in_port, dst_ip, self.mac_to_port[dpid][self.ip_to_mac[dpid][dst_ip]], 500)
+                self.inject_flow(datapath,dst_ip, self.mac_to_port[dpid][self.ip_to_mac[dpid][dst_ip]], src_ip, in_port,500)
+                self.forward_pkt(msg, in_port, src_ip, dst_ip, self.mac_to_port[dpid][self.ip_to_mac[dpid][dst_ip]])
+                
+            
             elif dst_ip in self.L3_ip_to_mac[dpid]:
                 if protocol == in_proto.IPPROTO_ICMP:
                     icmp_pkt = pkt.get_protocol(icmp.icmp)
                     echo = icmp_pkt.data
+
                     if icmp_pkt.type == icmp.ICMP_ECHO_REQUEST:
                         self.logger.info('ICMP REPLY to %s in port %d', dst_ip, in_port)
                         # Could be good add a flow to avoid use the controller
                         self.send_icmp(datapath, icmp.ICMP_ECHO_REPLY, echo, dst_ip, self.L3_ip_to_mac[dpid][dst_ip], src_ip, src_mac, in_port)
                         return
+        
+                
             else:
-                # Should enqueue the arrived packet here while switch search for the MAC....
-                self.flood_arp(datapath, dst_ip)
+                self.flood_arp(datapath, dst_ip, in_port,src_mac,src_ip,msg)
                 return
                     
-    def flood_arp(self, datapath, dst_ip):
-        dpid = datapath.id 
-        self.logger.info('flood')
+
+    def flood_arp(self, datapath, dst_ip, in_port,src_mac, src_ip, msg):
+        dpid = datapath.id
+        self.logger.info('Enqueue packet...')
+        # Must enqueue the arrived packet here while switch search for the MAC....
+        self.queue.setdefault(dpid, {})
+        self.queue[dpid][dst_ip]= [in_port, src_mac, src_ip, msg]
         
         for router_ip in self.L3_ip_to_mac[dpid]:
             if self.same_network(dst_ip, router_ip, '/24'):
                 self.logger.info('FLOOD executed to find %s', dst_ip)
-                self.send_arp(datapath, 1, router_ip, self.L3_ip_to_mac[dpid][router_ip], dst_ip, 'FF:FF:FF:FF:FF:FF', self.L3_mac_to_port[dpid][self.L3_ip_to_mac[dpid][router_ip]])
+                self.send_arp(datapath, 1, src_ip, self.L3_ip_to_mac[dpid][router_ip], dst_ip, 'FF:FF:FF:FF:FF:FF', self.L3_mac_to_port[dpid][self.L3_ip_to_mac[dpid][router_ip]])
                 return
 
-        # for net in NET_PORT:
-        #     if ipaddress.ip_address(dst_ip) in ipaddress.ip_network(net):
-        #         for router_ip in self.L3_ip_to_mac[dpid]:
-        #             if ipaddress.ip_address(router_ip) in ipaddress.ip_network(net):
-        #                 self.logger.info('FLOOD executed to find %s', dst_ip)
-        #                 self.send_arp(datapath, 1, router_ip, self.L3_ip_to_mac[dpid][router_ip], dst_ip, 'FF:FF:FF:FF:FF:FF', self.L3_mac_to_port[dpid][self.L3_ip_to_mac[dpid][router_ip]])
 
-    def handle_arp(self, datapath, pkt, in_port, src_mac):
+    def handle_arp(self, msg, pkt, in_port, src_mac):
+        datapath = msg.datapath
         dpid = datapath.id
         arp_pkt = pkt.get_protocol(arp.arp)
         src_ip = arp_pkt.src_ip
@@ -172,23 +198,108 @@ class L3Switch(app_manager.RyuApp):
             self.update_ip_table(datapath, src_ip, src_mac)
             self.logger.info(self.mac_to_port[dpid])
             self.logger.info(self.ip_to_mac[dpid])
+
             if dst_ip in self.L3_ip_to_mac[dpid]:
                 self.logger.info('ARP REPLY to %s in port %d', src_ip, in_port)
                 # Could be good add a flow to avoid use the controller
                 self.send_arp(datapath, 2, dst_ip, self.L3_ip_to_mac[dpid][dst_ip], src_ip, src_mac, in_port)
                 return
+
         else:   # ARP REPLY
-            # TO DO
-            # Added queue in this process...
-            self.logger.info('Added to the table: %s -> %s -> %s -> %d', dpid, src_ip, src_mac, in_port)
-            self.update_mac_table(datapath, src_mac, in_port)
-            self.update_ip_table(datapath, src_ip, src_mac)
+            if not self.queue[dpid]: #If queue is empty
+                self.logger.info('WARNING! -> Queue is empty, possible attacker trying to inject flow!')
+                return
+
+            elif src_ip in self.queue[dpid]:                
+                self.logger.info('Added to the table: %s -> %s -> %s -> %d', dpid, src_ip, src_mac, in_port)
+                self.update_mac_table(datapath, src_mac, in_port)
+                self.update_ip_table(datapath, src_ip, src_mac)
+                for key, value in self.L3_mac_to_port[dpid].items():
+                    self.logger.info("%s | %s",value,self.queue[dpid][src_ip][0]) 
+                    if value == self.queue[dpid][src_ip][0]:
+                        mac = key
+                        self.logger.info('NEW FLOW ADDED, PLS CHECK FLOW TABLE(2)')
+                        self.inject_flow(datapath, src_ip, in_port, dst_ip, value, 500)
+                        self.inject_flow(datapath, dst_ip, value, src_ip, in_port,500)
+                        #self.logger.info('Forwarding ARP REPLY to %s -> %s in port %d', dst_ip, self.queue[dpid][src_ip][1], value)
+                        self.logger.info('Forward pkt from %s(%s) to %s(%s) on port %d', src_ip, mac, dst_ip, self.queue[dpid][src_ip][1], self.queue[dpid][src_ip][0])
+                        self.f_pkt(self.queue[dpid][src_ip][3], in_port)
+                        #self.forward_pkt(msg, in_port, src_ip, dst_ip, self.queue[dpid][src_ip][0])
+                        # Remove from queue...
+                        self.queue[dpid].pop(src_ip)
+                        return
+
+            else:
+                self.logger.info('WARNING! -> ARP REPLY not REQUESTED! Possible attacker trying to inject flow!')
+                return
+
+    def f_pkt(self, queue_msg, out_port):
+        datapath = queue_msg.datapath
+        data = queue_msg.data
+        dpid = datapath.id
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+
+        pkt = packet.Packet(queue_msg.data)
+        pkt.serialize()
+        ip_pkt = pkt.get_protocol(ipv4.ipv4)
+        dst_ip = ip_pkt.dst
+
+        self.logger.info(pkt)
+
+        for key, value in self.L3_mac_to_port[dpid].items():
+            if value == out_port:
+                mac = key
+
+        actions = [ parser.OFPActionSetField(eth_src = mac),
+                    parser.OFPActionSetField(eth_dst = self.ip_to_mac[dpid][dst_ip]),
+                    #parser.OFPActionSetField(ipv4_src=src_ip),
+                    #parser.OFPActionSetField(ipv4_dst=dst_ip),
+                    parser.OFPActionOutput(out_port)]
+
+        out = parser.OFPPacketOut(datapath=datapath,
+                                  buffer_id=ofproto.OFP_NO_BUFFER,
+                                  in_port= ofproto.OFPP_CONTROLLER,
+                                  actions=actions,
+                                  data=data)
+
+        #self.logger.info('PACKET FORWARD -> %s',out)
+        datapath.send_msg(out)
+
+    def forward_pkt(self, msg, in_port, src_ip, dst_ip, out_port):
+        datapath = msg.datapath
+        data = msg.data
+        if data is None:
+            # Do not sent when data is None
             return
+        dpid = datapath.id
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        for key, value in self.L3_mac_to_port[dpid].items():
+            if value == out_port:
+                mac = key
+        self.logger.info(self.ip_to_mac[dpid][dst_ip])
+        actions = [ parser.OFPActionSetField(eth_src = mac),
+                    parser.OFPActionSetField(eth_dst = self.ip_to_mac[dpid][dst_ip]),
+                    #parser.OFPActionSetField(ipv4_src=src_ip),
+                    #parser.OFPActionSetField(ipv4_dst=dst_ip),
+                    parser.OFPActionOutput(out_port)]
+        
+        out = parser.OFPPacketOut(datapath=datapath,
+                                  buffer_id=ofproto.OFP_NO_BUFFER,
+                                  in_port= ofproto.OFPP_CONTROLLER,
+                                  actions=actions,
+                                  data=data)
+        #self.logger.info('PACKET FORWARD -> %s',out)
+        datapath.send_msg(out)
+
 
     def inject_flow(self, datapath, src_ip, in_port, dst_ip, out_port, priority):
+        src_ip_net = src_ip[0:src_ip.rfind('.')+1]+'0'
+        dst_ip_net = dst_ip[0:dst_ip.rfind('.')+1]+'0'
         dpid = datapath.id
         parser = datapath.ofproto_parser
-        match = parser.OFPMatch(in_port = in_port, eth_type = 0x0800, ipv4_src= src_ip, ipv4_dst = dst_ip) 
+        match = parser.OFPMatch(in_port = in_port, eth_type = 0x0800, ipv4_src= (src_ip_net, mask), ipv4_dst= (dst_ip_net, mask)) 
         #self.logger.info(interface_ip_to_mac[dst_ip])
         for key, value in self.L3_mac_to_port[dpid].items():
             if value == out_port:
@@ -211,7 +322,8 @@ class L3Switch(app_manager.RyuApp):
             in_port=datapath.ofproto.OFPP_CONTROLLER,
             actions=actions,
             data=p.data)
-
+        
+        #self.logger.info("ARP PKT OUT = %s", out)
         datapath.send_msg(out)
         return
 
